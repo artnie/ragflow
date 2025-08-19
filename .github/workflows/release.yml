@@ -15,6 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  if: false
   release:
     runs-on: [ "self-hosted", "overseas" ]
     steps:
