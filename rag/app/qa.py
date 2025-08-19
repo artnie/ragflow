@@ -1,3 +1,6 @@
+#
+#  Copyright 2025 The InfiniFlow Authors. All Rights Reserved.
+#
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
 #  You may obtain a copy of the License at
@@ -10,6 +13,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 #
+
 import logging
 import re
 import csv
@@ -25,6 +29,9 @@ from deepdoc.parser import PdfParser, ExcelParser, DocxParser
 from docx import Document
 from PIL import Image
 from markdown import markdown
+
+from rag.utils import get_float
+
 
 class Excel(ExcelParser):
     def __call__(self, fnm, binary=None, callback=None):
@@ -58,11 +65,11 @@ class Excel(ExcelParser):
                 if len(res) % 999 == 0:
                     callback(len(res) *
                              0.6 /
-                             total, ("Extract Q&A: {}".format(len(res)) +
+                             total, ("Extract pairs: {}".format(len(res)) +
                                      (f"{len(fails)} failure, line: %s..." %
                                       (",".join(fails[:3])) if fails else "")))
 
-        callback(0.6, ("Extract Q&A: {}. ".format(len(res)) + (
+        callback(0.6, ("Extract pairs: {}. ".format(len(res)) + (
             f"{len(fails)} failure, line: %s..." % (",".join(fails[:3])) if fails else "")))
         self.is_english = is_english(
             [rmPrefix(q) for q, _ in random_choices(res, k=30) if len(q) > 1])
@@ -121,8 +128,8 @@ class Pdf(PdfParser):
             section, line_tag = box['text'], self._line_tag(box, zoomin)
             has_bull, index = has_qbullet(reg, box, last_box, last_index, last_bull, bull_x0_list)
             last_box, last_index, last_bull = box, index, has_bull
-            line_pn = float(line_tag.lstrip('@@').split('\t')[0])
-            line_top = float(line_tag.rstrip('##').split('\t')[3])
+            line_pn = get_float(line_tag.lstrip('@@').split('\t')[0])
+            line_top = get_float(line_tag.rstrip('##').split('\t')[3])
             tbl_pn, tbl_left, tbl_right, tbl_top, tbl_bottom, tbl_tag, tbl_text = self.get_tbls_info(tbls, tbl_index)
             if not has_bull:  # No question bullet
                 if not last_q:
@@ -172,7 +179,7 @@ class Pdf(PdfParser):
         tbl_tag = "@@{}\t{:.1f}\t{:.1f}\t{:.1f}\t{:.1f}##" \
             .format(tbl_pn, tbl_left, tbl_right, tbl_top, tbl_bottom)
         _tbl_text = ''.join(tbls[tbl_index][0][1])
-        return tbl_pn, tbl_left, tbl_right, tbl_top, tbl_bottom, tbl_tag,
+        return tbl_pn, tbl_left, tbl_right, tbl_top, tbl_bottom, tbl_tag, _tbl_text
 
 
 class Docx(DocxParser):
@@ -264,29 +271,37 @@ def beAdocPdf(d, q, a, eng, image, poss):
         [qprefix + rmPrefix(q), aprefix + rmPrefix(a)])
     d["content_ltks"] = rag_tokenizer.tokenize(q)
     d["content_sm_ltks"] = rag_tokenizer.fine_grained_tokenize(d["content_ltks"])
-    d["image"] = image
+    if image:
+        d["image"] = image
+        d["doc_type_kwd"] = "image"
     add_positions(d, poss)
     return d
 
 
-def beAdocDocx(d, q, a, eng, image):
+def beAdocDocx(d, q, a, eng, image, row_num=-1):
     qprefix = "Question: " if eng else "问题："
     aprefix = "Answer: " if eng else "回答："
     d["content_with_weight"] = "\t".join(
         [qprefix + rmPrefix(q), aprefix + rmPrefix(a)])
     d["content_ltks"] = rag_tokenizer.tokenize(q)
     d["content_sm_ltks"] = rag_tokenizer.fine_grained_tokenize(d["content_ltks"])
-    d["image"] = image
+    if image:
+        d["image"] = image
+        d["doc_type_kwd"] = "image"
+    if row_num >= 0:
+        d["top_int"] = [row_num]
     return d
 
 
-def beAdoc(d, q, a, eng):
+def beAdoc(d, q, a, eng, row_num=-1):
     qprefix = "Question: " if eng else "问题："
     aprefix = "Answer: " if eng else "回答："
     d["content_with_weight"] = "\t".join(
         [qprefix + rmPrefix(q), aprefix + rmPrefix(a)])
     d["content_ltks"] = rag_tokenizer.tokenize(q)
     d["content_sm_ltks"] = rag_tokenizer.fine_grained_tokenize(d["content_ltks"])
+    if row_num >= 0:
+        d["top_int"] = [row_num]
     return d
 
 
@@ -295,7 +310,7 @@ def mdQuestionLevel(s):
     return (len(match.group(0)), s.lstrip('#').lstrip()) if match else (0, s)
 
 
-def chunk(filename, binary=None, lang="Chinese", callback=None, **kwargs):
+def chunk(filename, binary=None, from_page=0, to_page=100000, lang="Chinese", callback=None, **kwargs):
     """
         Excel and csv(txt) format files are supported.
         If the file is in excel format, there should be 2 column question and answer without header.
@@ -316,8 +331,8 @@ def chunk(filename, binary=None, lang="Chinese", callback=None, **kwargs):
     if re.search(r"\.xlsx?$", filename, re.IGNORECASE):
         callback(0.1, "Start to parse.")
         excel_parser = Excel()
-        for q, a in excel_parser(filename, binary, callback):
-            res.append(beAdoc(deepcopy(doc), q, a, eng))
+        for ii, (q, a) in enumerate(excel_parser(filename, binary, callback)):
+            res.append(beAdoc(deepcopy(doc), q, a, eng, ii))
         return res
 
     elif re.search(r"\.(txt)$", filename, re.IGNORECASE):
@@ -344,7 +359,7 @@ def chunk(filename, binary=None, lang="Chinese", callback=None, **kwargs):
                     fails.append(str(i+1))
             elif len(arr) == 2:
                 if question and answer:
-                    res.append(beAdoc(deepcopy(doc), question, answer, eng))
+                    res.append(beAdoc(deepcopy(doc), question, answer, eng, i))
                 question, answer = arr
             i += 1
             if len(res) % 999 == 0:
@@ -352,7 +367,7 @@ def chunk(filename, binary=None, lang="Chinese", callback=None, **kwargs):
                     f"{len(fails)} failure, line: %s..." % (",".join(fails[:3])) if fails else "")))
 
         if question:
-            res.append(beAdoc(deepcopy(doc), question, answer, eng))
+            res.append(beAdoc(deepcopy(doc), question, answer, eng, len(lines)))
 
         callback(0.6, ("Extract Q&A: {}".format(len(res)) + (
             f"{len(fails)} failure, line: %s..." % (",".join(fails[:3])) if fails else "")))
@@ -378,14 +393,14 @@ def chunk(filename, binary=None, lang="Chinese", callback=None, **kwargs):
                     fails.append(str(i + 1))
             elif len(row) == 2:
                 if question and answer:
-                    res.append(beAdoc(deepcopy(doc), question, answer, eng))
+                    res.append(beAdoc(deepcopy(doc), question, answer, eng, i))
                 question, answer = row
             if len(res) % 999 == 0:
                 callback(len(res) * 0.6 / len(lines), ("Extract Q&A: {}".format(len(res)) + (
                     f"{len(fails)} failure, line: %s..." % (",".join(fails[:3])) if fails else "")))
 
         if question:
-            res.append(beAdoc(deepcopy(doc), question, answer, eng))
+            res.append(beAdoc(deepcopy(doc), question, answer, eng, len(list(reader))))
 
         callback(0.6, ("Extract Q&A: {}".format(len(res)) + (
             f"{len(fails)} failure, line: %s..." % (",".join(fails[:3])) if fails else "")))
@@ -395,7 +410,7 @@ def chunk(filename, binary=None, lang="Chinese", callback=None, **kwargs):
         callback(0.1, "Start to parse.")
         pdf_parser = Pdf()
         qai_list, tbls = pdf_parser(filename if not binary else binary,
-                                    from_page=0, to_page=10000, callback=callback)
+                                    from_page=from_page, to_page=to_page, callback=callback)
         for q, a, image, poss in qai_list:
             res.append(beAdocPdf(deepcopy(doc), q, a, eng, image, poss))
         return res
@@ -420,7 +435,7 @@ def chunk(filename, binary=None, lang="Chinese", callback=None, **kwargs):
                 if last_answer.strip():
                     sum_question = '\n'.join(question_stack)
                     if sum_question:
-                        res.append(beAdoc(deepcopy(doc), sum_question, markdown(last_answer, extensions=['markdown.extensions.tables']), eng))
+                        res.append(beAdoc(deepcopy(doc), sum_question, markdown(last_answer, extensions=['markdown.extensions.tables']), eng, index))
                     last_answer = ''
 
                 i = question_level
@@ -432,7 +447,7 @@ def chunk(filename, binary=None, lang="Chinese", callback=None, **kwargs):
         if last_answer.strip():
             sum_question = '\n'.join(question_stack)
             if sum_question:
-                res.append(beAdoc(deepcopy(doc), sum_question, markdown(last_answer, extensions=['markdown.extensions.tables']), eng))
+                res.append(beAdoc(deepcopy(doc), sum_question, markdown(last_answer, extensions=['markdown.extensions.tables']), eng, index))
         return res
 
     elif re.search(r"\.docx$", filename, re.IGNORECASE):
@@ -440,8 +455,8 @@ def chunk(filename, binary=None, lang="Chinese", callback=None, **kwargs):
         qai_list, tbls = docx_parser(filename, binary,
                                     from_page=0, to_page=10000, callback=callback)
         res = tokenize_table(tbls, doc, eng)
-        for q, a, image in qai_list:
-            res.append(beAdocDocx(deepcopy(doc), q, a, eng, image))
+        for i, (q, a, image) in enumerate(qai_list):
+            res.append(beAdocDocx(deepcopy(doc), q, a, eng, image, i))
         return res
 
     raise NotImplementedError(

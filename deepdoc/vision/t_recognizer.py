@@ -1,3 +1,6 @@
+#
+#  Copyright 2025 The InfiniFlow Authors. All Rights Reserved.
+#
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
 #  You may obtain a copy of the License at
@@ -10,6 +13,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 #
+
 import logging
 import os
 import sys
@@ -23,7 +27,7 @@ sys.path.insert(
             '../../')))
 
 from deepdoc.vision.seeit import draw_box
-from deepdoc.vision import LayoutRecognizer, TableStructureRecognizer, OCR, init_in_out, Recognizer
+from deepdoc.vision import LayoutRecognizer, TableStructureRecognizer, OCR, init_in_out
 import argparse
 import re
 import numpy as np
@@ -33,9 +37,8 @@ def main(args):
     images, outputs = init_in_out(args)
     if args.mode.lower() == "layout":
         detr = LayoutRecognizer("layout")
-        layouts = super(Recognizer, detr)(images, thr=float(args.threshold))
+        layouts = detr.forward(images, thr=float(args.threshold))
     if args.mode.lower() == "tsr":
-        labels = TableStructureRecognizer.labels
         detr = TableStructureRecognizer()
         ocr = OCR()
         layouts = detr(images, thr=float(args.threshold))
@@ -50,7 +53,7 @@ def main(args):
                 "bbox": [t["x0"], t["top"], t["x1"], t["bottom"]],
                 "score": t["score"]
             } for t in lyt]
-        img = draw_box(images[i], lyt, labels, float(args.threshold))
+        img = draw_box(images[i], lyt, detr.labels, float(args.threshold))
         img.save(outputs[i], quality=95)
         logging.info("save result to: " + outputs[i])
 
@@ -81,13 +84,13 @@ def get_table_html(img, tb_cpns, ocr):
     clmns = LayoutRecognizer.layouts_cleanup(boxes, clmns, 5, 0.5)
 
     for b in boxes:
-        ii = LayoutRecognizer.find_overlapped_with_threashold(b, rows, thr=0.3)
+        ii = LayoutRecognizer.find_overlapped_with_threshold(b, rows, thr=0.3)
         if ii is not None:
             b["R"] = ii
             b["R_top"] = rows[ii]["top"]
             b["R_bott"] = rows[ii]["bottom"]
 
-        ii = LayoutRecognizer.find_overlapped_with_threashold(b, headers, thr=0.3)
+        ii = LayoutRecognizer.find_overlapped_with_threshold(b, headers, thr=0.3)
         if ii is not None:
             b["H_top"] = headers[ii]["top"]
             b["H_bott"] = headers[ii]["bottom"]
@@ -101,7 +104,7 @@ def get_table_html(img, tb_cpns, ocr):
             b["C_left"] = clmns[ii]["x0"]
             b["C_right"] = clmns[ii]["x1"]
 
-        ii = LayoutRecognizer.find_overlapped_with_threashold(b, spans, thr=0.3)
+        ii = LayoutRecognizer.find_overlapped_with_threshold(b, spans, thr=0.3)
         if ii is not None:
             b["H_top"] = spans[ii]["top"]
             b["H_bott"] = spans[ii]["bottom"]

@@ -3,7 +3,7 @@ import {
   KeywordIcon,
   QWeatherIcon,
   WikipediaIcon,
-} from '@/assets/icon/Icon';
+} from '@/assets/icon/next-icon';
 import { ReactComponent as AkShareIcon } from '@/assets/svg/akshare.svg';
 import { ReactComponent as ArXivIcon } from '@/assets/svg/arxiv.svg';
 import { ReactComponent as baiduFanyiIcon } from '@/assets/svg/baidu-fanyi.svg';
@@ -27,11 +27,16 @@ import { ReactComponent as TemplateIcon } from '@/assets/svg/template.svg';
 import { ReactComponent as TuShareIcon } from '@/assets/svg/tushare.svg';
 import { ReactComponent as WenCaiIcon } from '@/assets/svg/wencai.svg';
 import { ReactComponent as YahooFinanceIcon } from '@/assets/svg/yahoo-finance.svg';
+import { CodeTemplateStrMap, ProgrammingLanguage } from '@/constants/agent';
 
 // 邮件功能
 
-import { variableEnabledFieldMap } from '@/constants/chat';
+import {
+  ChatVariableEnabledField,
+  variableEnabledFieldMap,
+} from '@/constants/chat';
 import i18n from '@/locales/config';
+import { setInitialChatVariableEnabledFieldValue } from '@/utils/chat';
 
 // DuckDuckGo's channel options
 export enum Channel {
@@ -52,6 +57,8 @@ import upperFirst from 'lodash/upperFirst';
 import {
   CirclePower,
   CloudUpload,
+  CodeXml,
+  Database,
   IterationCcw,
   ListOrdered,
   OptionIcon,
@@ -99,6 +106,7 @@ export enum Operator {
   Email = 'Email',
   Iteration = 'Iteration',
   IterationStart = 'IterationItem',
+  Code = 'Code',
 }
 
 export const CommonOperatorList = Object.values(Operator).filter(
@@ -142,6 +150,7 @@ export const operatorIconMap = {
   [Operator.Email]: EmailIcon,
   [Operator.Iteration]: IterationCcw,
   [Operator.IterationStart]: CirclePower,
+  [Operator.Code]: CodeXml,
 };
 
 export const operatorMap: Record<
@@ -280,6 +289,7 @@ export const operatorMap: Record<
   [Operator.Email]: { backgroundColor: '#e6f7ff' },
   [Operator.Iteration]: { backgroundColor: '#e6f7ff' },
   [Operator.IterationStart]: { backgroundColor: '#e6f7ff' },
+  [Operator.Code]: { backgroundColor: '#4c5458' },
 };
 
 export const componentMenuList = [
@@ -298,9 +308,7 @@ export const componentMenuList = [
   {
     name: Operator.Message,
   },
-  {
-    name: Operator.Relevant,
-  },
+
   {
     name: Operator.RewriteQuestion,
   },
@@ -318,6 +326,9 @@ export const componentMenuList = [
   },
   {
     name: Operator.Iteration,
+  },
+  {
+    name: Operator.Code,
   },
   {
     name: Operator.Note,
@@ -395,17 +406,20 @@ export const initialRetrievalValues = {
   similarity_threshold: 0.2,
   keywords_similarity_weight: 0.3,
   top_n: 8,
+  use_kg: false,
   ...initialQueryBaseValues,
 };
 
 export const initialBeginValues = {
-  prologue: `Hi! I'm your assistant, what can I do for you?`,
+  prologue: `Hi! I'm your assistant. What can I do for you?`,
 };
 
 export const variableCheckBoxFieldMap = Object.keys(
   variableEnabledFieldMap,
 ).reduce<Record<string, boolean>>((pre, cur) => {
-  pre[cur] = true;
+  pre[cur] = setInitialChatVariableEnabledFieldValue(
+    cur as ChatVariableEnabledField,
+  );
   return pre;
 }, {});
 
@@ -428,7 +442,8 @@ export const initialGenerateValues = {
 
 export const initialRewriteQuestionValues = {
   ...initialLlmBaseValues,
-  loop: 1,
+  language: '',
+  message_history_window_size: 6,
 };
 
 export const initialRelevantValues = {
@@ -448,7 +463,7 @@ export const initialMessageValues = {
 
 export const initialKeywordExtractValues = {
   ...initialLlmBaseValues,
-  top_n: 1,
+  top_n: 3,
   ...initialQueryBaseValues,
 };
 export const initialDuckValues = {
@@ -601,6 +616,7 @@ export const initialInvokeValues = {
 }`,
   proxy: 'http://',
   clean_html: false,
+  datatype: 'json',
 };
 
 export const initialTemplateValues = {
@@ -624,6 +640,19 @@ export const initialIterationValues = {
   delimiter: ',',
 };
 export const initialIterationStartValues = {};
+
+export const initialCodeValues = {
+  lang: 'python',
+  script: CodeTemplateStrMap[ProgrammingLanguage.Python],
+  arguments: [
+    {
+      name: 'arg1',
+    },
+    {
+      name: 'arg2',
+    },
+  ],
+};
 
 export const CategorizeAnchorPointPositions = [
   { top: 1, right: 34 },
@@ -671,9 +700,7 @@ export const RestrictedUpstreamMap = {
   [Operator.RewriteQuestion]: [
     Operator.Begin,
     Operator.Message,
-    Operator.Generate,
     Operator.RewriteQuestion,
-    Operator.Categorize,
     Operator.Relevant,
   ],
   [Operator.KeywordExtract]: [
@@ -708,6 +735,7 @@ export const RestrictedUpstreamMap = {
   [Operator.Email]: [Operator.Begin],
   [Operator.Iteration]: [Operator.Begin],
   [Operator.IterationStart]: [Operator.Begin],
+  [Operator.Code]: [Operator.Begin],
 };
 
 export const NodeMap = {
@@ -747,6 +775,7 @@ export const NodeMap = {
   [Operator.Email]: 'emailNode',
   [Operator.Iteration]: 'group',
   [Operator.IterationStart]: 'iterationStartNode',
+  [Operator.Code]: 'ragNode',
 };
 
 export const LanguageOptions = [
@@ -805,6 +834,10 @@ export const LanguageOptions = [
   {
     value: 'de',
     label: 'Deutsch',
+  },
+  {
+    value: 'fr',
+    label: 'Français',
   },
   {
     value: 'et',
@@ -2944,6 +2977,7 @@ export enum BeginQueryType {
   File = 'file',
   Integer = 'integer',
   Boolean = 'boolean',
+  KnowledgeBases = 'kb',
 }
 
 export const BeginQueryTypeIconMap = {
@@ -2953,6 +2987,7 @@ export const BeginQueryTypeIconMap = {
   [BeginQueryType.File]: CloudUpload,
   [BeginQueryType.Integer]: ListOrdered,
   [BeginQueryType.Boolean]: ToggleLeft,
+  [BeginQueryType.KnowledgeBases]: Database,
 };
 
 export const NoDebugOperatorsList = [

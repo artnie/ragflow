@@ -12,7 +12,7 @@ export interface IDocumentInfo {
   parser_config: IParserConfig;
   parser_id: string;
   process_begin_at?: string;
-  process_duation: number;
+  process_duration: number;
   progress: number;
   progress_msg: string;
   run: RunningStatus;
@@ -24,6 +24,7 @@ export interface IDocumentInfo {
   type: string;
   update_date: string;
   update_time: number;
+  meta_fields?: Record<string, any>;
 }
 
 export interface IParserConfig {
@@ -32,8 +33,22 @@ export interface IParserConfig {
   layout_recognize?: boolean;
   pages: any[];
   raptor?: Raptor;
+  graphrag?: GraphRag;
 }
 
 interface Raptor {
   use_raptor: boolean;
 }
+
+interface GraphRag {
+  community?: boolean;
+  entity_types?: string[];
+  method?: string;
+  resolution?: boolean;
+  use_graphrag?: boolean;
+}
+
+export type IDocumentInfoFilter = {
+  run_status: Record<number, number>;
+  suffix: Record<string, number>;
+};

@@ -35,8 +35,47 @@ module.exports = {
         'colors-text-core-standard': 'var(--colors-text-core-standard)',
         'colors-text-neutral-strong': 'var(--colors-text-neutral-strong)',
         'colors-text-neutral-standard': 'var(--colors-text-neutral-standard)',
+        'colors-text-neutral-weak': 'var(--colors-text-neutral-weak)',
         'colors-text-functional-danger': 'var(--colors-text-functional-danger)',
         'colors-text-inverse-strong': 'var(--colors-text-inverse-strong)',
+        'colors-text-persist-light': 'var(--colors-text-persist-light)',
+        'colors-text-inverse-weak': 'var(--colors-text-inverse-weak)',
+
+        'background-badge': 'var(--background-badge)',
+        'text-badge': 'var(--text-badge)',
+        'text-title': 'var(--text-title)',
+        'text-sub-title': 'var(--text-sub-title)',
+        'text-sub-title-invert': 'var(--text-sub-title-invert)',
+        'text-title-invert': 'var(--text-title-invert)',
+        'background-header-bar': 'var(--background-header-bar)',
+        'background-card': 'var(--background-card)',
+        'background-note': 'var(--background-note)',
+        'background-highlight': 'var(--background-highlight)',
+
+        'input-border': 'var(--input-border)',
+
+        /* design colors */
+
+        'bg-base': 'var(--bg-base)',
+        'bg-card': 'var(--bg-card)',
+        'text-primary': 'var(--text-primary)',
+        'text-secondary': 'var(--text-secondary)',
+        'text-disabled': 'var(--text-disabled)',
+        'text-input-tip': 'var(--text-input-tip)',
+        'border-default': 'var(--border-default)',
+        'border-accent': 'var(--border-accent)',
+        'border-button': 'var(--border-button)',
+        'accent-primary': 'var(--accent-primary)',
+        'bg-accent': 'var(--bg-accent)',
+        'state-success': 'var(--state-success)',
+        'state-warning': 'var(--state-warning)',
+        'state-error': 'var(--state-error)',
+        'team-group': 'var(--team-group)',
+        'team-member': 'var(--team-member)',
+        'team-department': 'var(--team-department)',
+        'bg-group': 'var(--bg-group)',
+        'bg-member': 'var(--bg-member)',
+        'bg-department': 'var(--bg-department)',
 
         primary: {
           DEFAULT: 'hsl(var(--primary))',
@@ -140,10 +179,6 @@ module.exports = {
           DEFAULT: 'var(--colors-background-inverse-strong)',
           foreground: 'var(--background-inverse-standard-foreground)',
         },
-        'colors-background-inverse-weak': {
-          DEFAULT: 'var(--colors-background-inverse-weak)',
-          foreground: 'var(--background-inverse-standard-foreground)',
-        },
         'colors-background-neutral-standard': {
           DEFAULT: 'var(--colors-background-neutral-standard)',
           foreground: 'var(--background-inverse-standard-foreground)',
@@ -155,6 +190,20 @@ module.exports = {
         'colors-background-neutral-weak': {
           DEFAULT: 'var(--colors-background-neutral-weak)',
           foreground: 'var(--background-inverse-standard-foreground)',
+        },
+        'colors-background-sentiment-solid-primary': {
+          DEFAULT: 'var(--colors-background-sentiment-solid-primary)',
+          foreground: 'var(--background-inverse-standard-foreground)',
+        },
+        sidebar: {
+          DEFAULT: 'hsl(var(--sidebar-background))',
+          foreground: 'hsl(var(--sidebar-foreground))',
+          primary: 'hsl(var(--sidebar-primary))',
+          'primary-foreground': 'hsl(var(--sidebar-primary-foreground))',
+          accent: 'hsl(var(--sidebar-accent))',
+          'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
+          border: 'hsl(var(--sidebar-border))',
+          ring: 'hsl(var(--sidebar-ring))',
         },
       },
       borderRadius: {
@@ -186,5 +235,9 @@ module.exports = {
       },
     },
   },
-  plugins: [require('tailwindcss-animate'), require('@tailwindcss/line-clamp')],
+  plugins: [
+    require('tailwindcss-animate'),
+    require('@tailwindcss/line-clamp'),
+    require('tailwind-scrollbar'),
+  ],
 };

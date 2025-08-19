@@ -180,7 +180,9 @@ export const useCreateChunk = () => {
       const { data } = await service(payload);
       if (data.code === 0) {
         message.success(t('message.created'));
-        queryClient.invalidateQueries({ queryKey: ['fetchChunkList'] });
+        setTimeout(() => {
+          queryClient.invalidateQueries({ queryKey: ['fetchChunkList'] });
+        }, 1000); // Delay to ensure the list is updated
       }
       return data?.code;
     },
@@ -194,29 +196,10 @@ export const useFetchChunk = (chunkId?: string): ResponseType<any> => {
     queryKey: ['fetchChunk'],
     enabled: !!chunkId,
     initialData: {},
+    gcTime: 0,
     queryFn: async () => {
       const data = await kbService.get_chunk({
         chunk_id: chunkId,
-      });
-
-      return data;
-    },
-  });
-
-  return data;
-};
-
-export const useFetchKnowledgeGraph = (
-  documentId: string,
-): ResponseType<any> => {
-  const { data } = useQuery({
-    queryKey: ['fetchKnowledgeGraph', documentId],
-    initialData: true,
-    enabled: !!documentId,
-    gcTime: 0,
-    queryFn: async () => {
-      const data = await kbService.knowledge_graph({
-        doc_id: documentId,
       });
 
       return data;

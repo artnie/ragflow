@@ -14,14 +14,18 @@
 #  limitations under the License.
 #
 import json
-import traceback
+import logging
+import time
 from uuid import uuid4
 from agent.canvas import Canvas
-from api.db.db_models import DB, CanvasTemplate, UserCanvas, API4Conversation
+from api.db import TenantPermission
+from api.db.db_models import DB, CanvasTemplate, User, UserCanvas, API4Conversation
 from api.db.services.api_service import API4ConversationService
 from api.db.services.common_service import CommonService
-from api.db.services.conversation_service import structure_answer
 from api.utils import get_uuid
+from api.utils.api_utils import get_data_openai
+import tiktoken
+from peewee import fn
 
 
 class CanvasTemplateService(CommonService):
@@ -50,117 +54,235 @@ class UserCanvasService(CommonService):
 
         return list(agents.dicts())
 
+    @classmethod
+    @DB.connection_context()
+    def get_by_tenant_id(cls, pid):
+        try:
 
-def completion(tenant_id, agent_id, question, session_id=None, stream=True, **kwargs):
-    e, cvs = UserCanvasService.get_by_id(agent_id)
-    assert e, "Agent not found."
-    assert cvs.user_id == tenant_id, "You do not own the agent."
-    if not isinstance(cvs.dsl,str):
-        cvs.dsl = json.dumps(cvs.dsl, ensure_ascii=False)
-    canvas = Canvas(cvs.dsl, tenant_id)
-    canvas.reset()
-    message_id = str(uuid4())
-    if not session_id:
-        query = canvas.get_preset_param()
-        if query:
-            for ele in query:
-                if not ele["optional"]:
-                    if not kwargs.get(ele["key"]):
-                        assert False, f"`{ele['key']}` is required"
-                    ele["value"] = kwargs[ele["key"]]
-                if ele["optional"]:
-                    if kwargs.get(ele["key"]):
-                        ele["value"] = kwargs[ele['key']]
-                    else:
-                        if "value" in ele:
-                            ele.pop("value")
-        cvs.dsl = json.loads(str(canvas))
+            fields = [
+                cls.model.id,
+                cls.model.avatar,
+                cls.model.title,
+                cls.model.dsl,
+                cls.model.description,
+                cls.model.permission,
+                cls.model.update_time,
+                cls.model.user_id,
+                cls.model.create_time,
+                cls.model.create_date,
+                cls.model.update_date,
+                User.nickname,
+                User.avatar.alias('tenant_avatar'),
+            ]
+            agents = cls.model.select(*fields) \
+            .join(User, on=(cls.model.user_id == User.id)) \
+            .where(cls.model.id == pid)
+            # obj = cls.model.query(id=pid)[0]
+            return True, agents.dicts()[0]
+        except Exception as e:
+            logging.exception(e)
+            return False, None
+
+    @classmethod
+    @DB.connection_context()
+    def get_by_tenant_ids(cls, joined_tenant_ids, user_id,
+                          page_number, items_per_page,
+                          orderby, desc, keywords,
+                          ):
+        fields = [
+            cls.model.id,
+            cls.model.avatar,
+            cls.model.title,
+            cls.model.dsl,
+            cls.model.description,
+            cls.model.permission,
+            User.nickname,
+            User.avatar.alias('tenant_avatar'),
+            cls.model.update_time
+        ]
+        if keywords:
+            agents = cls.model.select(*fields).join(User, on=(cls.model.user_id == User.id)).where(
+                ((cls.model.user_id.in_(joined_tenant_ids) & (cls.model.permission ==
+                                                                TenantPermission.TEAM.value)) | (
+                    cls.model.user_id == user_id)),
+                (fn.LOWER(cls.model.title).contains(keywords.lower()))
+            )
+        else:
+            agents = cls.model.select(*fields).join(User, on=(cls.model.user_id == User.id)).where(
+                ((cls.model.user_id.in_(joined_tenant_ids) & (cls.model.permission ==
+                                                                TenantPermission.TEAM.value)) | (
+                    cls.model.user_id == user_id))
+            )
+        if desc:
+            agents = agents.order_by(cls.model.getter_by(orderby).desc())
+        else:
+            agents = agents.order_by(cls.model.getter_by(orderby).asc())
+        count = agents.count()
+        agents = agents.paginate(page_number, items_per_page)
+        return list(agents.dicts()), count
+
+    @classmethod
+    @DB.connection_context()
+    def accessible(cls, canvas_id, tenant_id):
+        from api.db.services.user_service import UserTenantService
+        e, c = UserCanvasService.get_by_tenant_id(canvas_id)
+        if not e:
+            return False
+
+        tids = [t.tenant_id for t in UserTenantService.query(user_id=tenant_id)]
+        if c["user_id"] != canvas_id and c["user_id"]  not in tids:
+            return False
+        return True
+
+def completion(tenant_id, agent_id, session_id=None, **kwargs):
+    query = kwargs.get("query", "") or kwargs.get("question", "")
+    files = kwargs.get("files", [])
+    inputs = kwargs.get("inputs", {})
+    user_id = kwargs.get("user_id", "")
+
+    if session_id:
+        e, conv = API4ConversationService.get_by_id(session_id)
+        assert e, "Session not found!"
+        if not conv.message:
+            conv.message = []
+        if not isinstance(conv.dsl, str):
+            conv.dsl = json.dumps(conv.dsl, ensure_ascii=False)
+        canvas = Canvas(conv.dsl, tenant_id, agent_id)
+    else:
+        e, cvs = UserCanvasService.get_by_id(agent_id)
+        assert e, "Agent not found."
+        assert cvs.user_id == tenant_id, "You do not own the agent."
+        if not isinstance(cvs.dsl, str):
+            cvs.dsl = json.dumps(cvs.dsl, ensure_ascii=False)
         session_id=get_uuid()
+        canvas = Canvas(cvs.dsl, tenant_id, agent_id)
+        canvas.reset()
         conv = {
             "id": session_id,
             "dialog_id": cvs.id,
-            "user_id": kwargs.get("user_id", "") if isinstance(kwargs, dict) else "",
-            "message": [{"role": "assistant", "content": canvas.get_prologue()}],
+            "user_id": user_id,
+            "message": [],
             "source": "agent",
             "dsl": cvs.dsl
         }
         API4ConversationService.save(**conv)
-        if query:
-            yield "data:" + json.dumps({"code": 0,
-                                        "message": "",
-                                        "data": {
-                                            "session_id": session_id,
-                                            "answer": canvas.get_prologue(),
-                                            "reference": [],
-                                            "param": canvas.get_preset_param()
-                                        }
-                                        },
-                                       ensure_ascii=False) + "\n\n"
-            yield "data:" + json.dumps({"code": 0, "message": "", "data": True}, ensure_ascii=False) + "\n\n"
-            return
-        else:
-            conv = API4Conversation(**conv)
-    else:
-        e, conv = API4ConversationService.get_by_id(session_id)
-        assert e, "Session not found!"
-        canvas = Canvas(json.dumps(conv.dsl), tenant_id)
-        canvas.messages.append({"role": "user", "content": question, "id": message_id})
-        canvas.add_user_input(question)
-        if not conv.message:
-            conv.message = []
-        conv.message.append({
-            "role": "user",
-            "content": question,
-            "id": message_id
-        })
-        if not conv.reference:
-            conv.reference = []
-        conv.reference.append({"chunks": [], "doc_aggs": []})
+        conv = API4Conversation(**conv)
 
-    final_ans = {"reference": [], "content": ""}
+    message_id = str(uuid4())
+    conv.message.append({
+        "role": "user",
+        "content": query,
+        "id": message_id
+    })
+    txt = ""
+    for ans in canvas.run(query=query, files=files, user_id=user_id, inputs=inputs):
+        ans["session_id"] = session_id
+        if ans["event"] == "message":
+            txt += ans["data"]["content"]
+        yield "data:" + json.dumps(ans, ensure_ascii=False) + "\n\n"
+
+    conv.message.append({"role": "assistant", "content": txt, "created_at": time.time(), "id": message_id})
+    conv.reference = canvas.get_reference()
+    conv.errors = canvas.error
+    conv.dsl = str(canvas)
+    conv = conv.to_dict()
+    API4ConversationService.append_message(conv["id"], conv)
+
+
+def completionOpenAI(tenant_id, agent_id, question, session_id=None, stream=True, **kwargs):
+    tiktokenenc = tiktoken.get_encoding("cl100k_base")
+    prompt_tokens = len(tiktokenenc.encode(str(question)))
+    user_id = kwargs.get("user_id", "")
+
     if stream:
+        completion_tokens = 0
         try:
-            for ans in canvas.run(stream=stream):
-                if ans.get("running_status"):
-                    yield "data:" + json.dumps({"code": 0, "message": "",
-                                                "data": {"answer": ans["content"],
-                                                         "running_status": True}},
-                                               ensure_ascii=False) + "\n\n"
-                    continue
-                for k in ans.keys():
-                    final_ans[k] = ans[k]
-                ans = {"answer": ans["content"], "reference": ans.get("reference", [])}
-                ans = structure_answer(conv, ans, message_id, session_id)
-                yield "data:" + json.dumps({"code": 0, "message": "", "data": ans},
-                                           ensure_ascii=False) + "\n\n"
+            for ans in completion(
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                session_id=session_id,
+                query=question,
+                user_id=user_id,
+                **kwargs
+            ):
+                if isinstance(ans, str):
+                    try:
+                        ans = json.loads(ans[5:])  # remove "data:"
+                    except Exception as e:
+                        logging.exception(f"Agent OpenAI-Compatible completionOpenAI parse answer failed: {e}")
+                        continue
 
-            canvas.messages.append({"role": "assistant", "content": final_ans["content"], "id": message_id})
-            canvas.history.append(("assistant", final_ans["content"]))
-            if final_ans.get("reference"):
-                canvas.reference.append(final_ans["reference"])
-            conv.dsl = json.loads(str(canvas))
-            API4ConversationService.append_message(conv.id, conv.to_dict())
+                if ans.get("event") != "message":
+                    continue
+
+                content_piece = ans["data"]["content"]
+                completion_tokens += len(tiktokenenc.encode(content_piece))
+
+                yield "data: " + json.dumps(
+                    get_data_openai(
+                        id=session_id or str(uuid4()),
+                        model=agent_id,
+                        content=content_piece,
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        stream=True
+                    ),
+                    ensure_ascii=False
+                ) + "\n\n"
+
+            yield "data: [DONE]\n\n"
+
         except Exception as e:
-            traceback.print_exc()
-            conv.dsl = json.loads(str(canvas))
-            API4ConversationService.append_message(conv.id, conv.to_dict())
-            yield "data:" + json.dumps({"code": 500, "message": str(e),
-                                        "data": {"answer": "**ERROR**: " + str(e), "reference": []}},
-                                       ensure_ascii=False) + "\n\n"
-        yield "data:" + json.dumps({"code": 0, "message": "", "data": True}, ensure_ascii=False) + "\n\n"
+            yield "data: " + json.dumps(
+                get_data_openai(
+                    id=session_id or str(uuid4()),
+                    model=agent_id,
+                    content=f"**ERROR**: {str(e)}",
+                    finish_reason="stop",
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=len(tiktokenenc.encode(f"**ERROR**: {str(e)}")),
+                    stream=True
+                ),
+                ensure_ascii=False
+            ) + "\n\n"
+            yield "data: [DONE]\n\n"
 
     else:
-        for answer in canvas.run(stream=False):
-            if answer.get("running_status"):
-                continue
-            final_ans["content"] = "\n".join(answer["content"]) if "content" in answer else ""
-            canvas.messages.append({"role": "assistant", "content": final_ans["content"], "id": message_id})
-            if final_ans.get("reference"):
-                canvas.reference.append(final_ans["reference"])
-            conv.dsl = json.loads(str(canvas))
+        try:
+            all_content = ""
+            for ans in completion(
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                session_id=session_id,
+                query=question,
+                user_id=user_id,
+                **kwargs
+            ):
+                if isinstance(ans, str):
+                    ans = json.loads(ans[5:])
+                if ans.get("event") != "message":
+                    continue
+                all_content += ans["data"]["content"]
 
-            result = {"answer": final_ans["content"], "reference": final_ans.get("reference", [])}
-            result = structure_answer(conv, result, message_id, session_id)
-            API4ConversationService.append_message(conv.id, conv.to_dict())
-            yield result
-            break
+            completion_tokens = len(tiktokenenc.encode(all_content))
+
+            yield get_data_openai(
+                id=session_id or str(uuid4()),
+                model=agent_id,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                content=all_content,
+                finish_reason="stop",
+                param=None
+            )
+
+        except Exception as e:
+            yield get_data_openai(
+                id=session_id or str(uuid4()),
+                model=agent_id,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=len(tiktokenenc.encode(f"**ERROR**: {str(e)}")),
+                content=f"**ERROR**: {str(e)}",
+                finish_reason="stop",
+                param=None
+            )
