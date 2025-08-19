@@ -33,6 +33,9 @@ export default {
       pleaseSelect: '請選擇',
       pleaseInput: '請輸入',
       submit: '提交',
+      embedIntoSite: '嵌入網站',
+      previousPage: '上一頁',
+      nextPage: '下一頁',
     },
     login: {
       login: '登入',
@@ -118,8 +121,8 @@ export default {
       view: '看法',
       filesSelected: '選定的文件',
       upload: '上傳',
-      run: '啟動',
-      runningStatus0: '未啟動',
+      run: '解析',
+      runningStatus0: '未解析',
       runningStatus1: '解析中',
       runningStatus2: '取消',
       runningStatus3: '成功',
@@ -268,6 +271,16 @@ export default {
 <p>接下來，區塊將傳送到LLM以提取知識圖譜和思維導圖的節點和關係。
 
 <p>請注意您需要指定的條目類型。</p></p>`,
+      tag: `<p>使用「標籤」作為分塊方法的知識庫應該被其他知識庫用來將標籤加入其區塊中，查詢也將帶有標籤。
+<p>使用「標籤」作為分塊方法的知識庫<b>不</b>應該參與 RAG 過程。
+<p>本知識庫中的區塊是標籤的範例，展示了整個標籤集以及區塊與標籤之間的相關性。
+
+<p>此區塊方法支援<b>EXCEL</b>和<b>CSV/TXT</b>檔案格式。
+<p>如果檔案採用 <b>Excel</b> 格式，則應包含兩列，不含標題：一列用於內容，另一列用於標籤，內容列位於標籤列之前。只要列的結構正確，多張紙也是可以接受的。
+<p>如果檔案為<b>CSV/TXT</b>格式，則必須採用UTF-8編碼，並以TAB作為分隔符號來分隔內容和標籤。
+<p>標籤欄中，標籤之間有英文<b>逗號</b>。
+<i>不符合上述規則的文字行將被忽略，並且每一對將被視為一個不同的區塊。
+`,
       useRaptor: '使用RAPTOR文件增強策略',
       useRaptorTip: '請參考 https://huggingface.co/papers/2401.18059',
       prompt: '提示詞',
@@ -291,6 +304,11 @@ export default {
       pageRank: '頁面排名',
       pageRankTip: `這用來提高相關性分數。所有檢索到的區塊的相關性得分將加上該數字。
 當您想要先搜尋給定的知識庫時，請設定比其他人更高的 pagerank 分數。`,
+      tagName: '標籤',
+      frequency: '頻次',
+      searchTags: '搜尋標籤',
+      tagCloud: '雲端',
+      tagTable: '表',
     },
     chunk: {
       chunk: '解析塊',
@@ -1015,6 +1033,23 @@ export default {
       templateDescription: '此元件用於排版各種元件的輸出。 ',
       jsonUploadTypeErrorMessage: '請上傳json檔',
       jsonUploadContentErrorMessage: 'json 檔案錯誤',
+      iterationDescription: `此元件首先透過「分隔符號」將輸入拆分為陣列。
+對數組中的元素依序執行相同的操作步驟，直到輸出所有結果，可以理解為任務批次處理器。
+
+例如，在長文本翻譯迭代節點內，如果所有內容都輸入到LLM節點，則可能會達到單次對話限制。上游節點可以先將長文本拆分為多個分片，並配合迭代節點對每個分片進行批次翻譯，避免達到單次對話的LLM訊息限制。`,
+      delimiterTip: `此分隔符號用於將輸入文字分割成多個文字片段，其中的回顯將作為每次迭代的輸入項執行。`,
+      delimiterOptions: {
+        comma: '逗號',
+        lineBreak: '換行',
+        tab: '製表符',
+        underline: '底線',
+        diagonal: '斜線',
+        minus: '減號',
+        semicolon: '分號',
+      },
+      addVariable: '新增變數',
+      variableSettings: '變數設定',
+      systemPrompt: '系統提示詞',
     },
     footer: {
       profile: '“保留所有權利 @ react”',

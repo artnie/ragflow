@@ -66,8 +66,8 @@ class DocumentService(CommonService):
         else:
             docs = docs.order_by(cls.model.getter_by(orderby).asc())
 
-        docs = docs.paginate(page_number, items_per_page)
         count = docs.count()
+        docs = docs.paginate(page_number, items_per_page)
         return list(docs.dicts()), count
 
     @classmethod
@@ -96,14 +96,11 @@ class DocumentService(CommonService):
     def insert(cls, doc):
         if not cls.save(**doc):
             raise RuntimeError("Database error (Document)!")
-        e, doc = cls.get_by_id(doc["id"])
-        if not e:
-            raise RuntimeError("Database error (Document retrieval)!")
-        e, kb = KnowledgebaseService.get_by_id(doc.kb_id)
+        e, kb = KnowledgebaseService.get_by_id(doc["kb_id"])
         if not KnowledgebaseService.update_by_id(
                 kb.id, {"doc_num": kb.doc_num + 1}):
             raise RuntimeError("Database error (Knowledgebase)!")
-        return doc
+        return Document(**doc)
 
     @classmethod
     @DB.connection_context()
@@ -344,6 +341,8 @@ class DocumentService(CommonService):
                     old[k] = v
 
         dfs_update(d.parser_config, config)
+        if not config.get("raptor") and d.parser_config.get("raptor"):
+            del d.parser_config["raptor"]
         cls.update_by_id(id, {"parser_config": d.parser_config})
 
     @classmethod
@@ -432,17 +431,25 @@ class DocumentService(CommonService):
 
 
 def queue_raptor_tasks(doc):
+    chunking_config = DocumentService.get_chunking_config(doc["id"])
+    hasher = xxhash.xxh64()
+    for field in sorted(chunking_config.keys()):
+        hasher.update(str(chunking_config[field]).encode("utf-8"))
+
     def new_task():
         nonlocal doc
         return {
             "id": get_uuid(),
             "doc_id": doc["id"],
-            "from_page": 0,
-            "to_page": -1,
+            "from_page": 100000000,
+            "to_page": 100000000,
             "progress_msg": "Start to do RAPTOR (Recursive Abstractive Processing for Tree-Organized Retrieval)."
         }
 
     task = new_task()
+    for field in ["doc_id", "from_page", "to_page"]:
+        hasher.update(str(task.get(field, "")).encode("utf-8"))
+    task["digest"] = hasher.hexdigest()
     bulk_insert_into_db(Task, [task], True)
     task["type"] = "raptor"
     assert REDIS_CONN.queue_product(SVR_QUEUE_NAME, message=task), "Can't access Redis. Please check the Redis' status."

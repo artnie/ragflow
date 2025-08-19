@@ -19,6 +19,8 @@
 
 import sys
 from api.utils.log_utils import initRootLogger
+from graphrag.utils import get_llm_cache, set_llm_cache
+
 CONSUMER_NO = "0" if len(sys.argv) < 2 else sys.argv[1]
 CONSUMER_NAME = "task_executor_" + CONSUMER_NO
 initRootLogger(CONSUMER_NAME)
@@ -81,7 +83,7 @@ FACTORY = {
 
 CONSUMER_NAME = "task_consumer_" + CONSUMER_NO
 PAYLOAD: Payload | None = None
-BOOT_AT = datetime.now().isoformat()
+BOOT_AT = datetime.now().astimezone().isoformat(timespec="milliseconds")
 PENDING_TASKS = 0
 LAG_TASKS = 0
 
@@ -90,9 +92,11 @@ DONE_TASKS = 0
 FAILED_TASKS = 0
 CURRENT_TASK = None
 
+
 class TaskCanceledException(Exception):
     def __init__(self, msg):
         self.msg = msg
+
 
 def set_progress(task_id, from_page=0, to_page=-1, prog=None, msg="Processing..."):
     global PAYLOAD
@@ -114,6 +118,8 @@ def set_progress(task_id, from_page=0, to_page=-1, prog=None, msg="Processing...
     if to_page > 0:
         if msg:
             msg = f"Page({from_page + 1}~{to_page + 1}): " + msg
+    if msg:
+        msg = datetime.now().strftime("%H:%M:%S") + " " + msg
     d = {"progress_msg": msg}
     if prog is not None:
         d["progress"] = prog
@@ -232,9 +238,6 @@ def build_chunks(task, progress_callback):
         if not d.get("image"):
             _ = d.pop("image", None)
             d["img_id"] = ""
-            d["page_num_int"] = []
-            d["position_int"] = []
-            d["top_int"] = []
             docs.append(d)
             continue
 
@@ -249,7 +252,7 @@ def build_chunks(task, progress_callback):
             STORAGE_IMPL.put(task["kb_id"], d["id"], output_buffer.getvalue())
             el += timer() - st
         except Exception:
-            logging.exception("Saving image of chunk {}/{}/{} got exception".format(task["location"], task["name"], d["_id"]))
+            logging.exception("Saving image of chunk {}/{}/{} got exception".format(task["location"], task["name"], d["id"]))
             raise
 
         d["img_id"] = "{}-{}".format(task["kb_id"], d["id"])
@@ -262,8 +265,16 @@ def build_chunks(task, progress_callback):
         progress_callback(msg="Start to generate keywords for every chunk ...")
         chat_mdl = LLMBundle(task["tenant_id"], LLMType.CHAT, llm_name=task["llm_id"], lang=task["language"])
         for d in docs:
-            d["important_kwd"] = keyword_extraction(chat_mdl, d["content_with_weight"],
-                                                    task["parser_config"]["auto_keywords"]).split(",")
+            cached = get_llm_cache(chat_mdl.llm_name, d["content_with_weight"], "keywords",
+                                   {"topn": task["parser_config"]["auto_keywords"]})
+            if not cached:
+                cached = keyword_extraction(chat_mdl, d["content_with_weight"],
+                                            task["parser_config"]["auto_keywords"])
+                if cached:
+                    set_llm_cache(chat_mdl.llm_name, d["content_with_weight"], cached, "keywords",
+                                  {"topn": task["parser_config"]["auto_keywords"]})
+
+            d["important_kwd"] = cached.split(",")
             d["important_tks"] = rag_tokenizer.tokenize(" ".join(d["important_kwd"]))
         progress_callback(msg="Keywords generation completed in {:.2f}s".format(timer() - st))
 
@@ -272,7 +283,15 @@ def build_chunks(task, progress_callback):
         progress_callback(msg="Start to generate questions for every chunk ...")
         chat_mdl = LLMBundle(task["tenant_id"], LLMType.CHAT, llm_name=task["llm_id"], lang=task["language"])
         for d in docs:
-            d["question_kwd"] = question_proposal(chat_mdl, d["content_with_weight"], task["parser_config"]["auto_questions"]).split("\n")
+            cached = get_llm_cache(chat_mdl.llm_name, d["content_with_weight"], "question",
+                                   {"topn": task["parser_config"]["auto_questions"]})
+            if not cached:
+                cached = question_proposal(chat_mdl, d["content_with_weight"], task["parser_config"]["auto_questions"])
+                if cached:
+                    set_llm_cache(chat_mdl.llm_name, d["content_with_weight"], cached, "question",
+                                  {"topn": task["parser_config"]["auto_questions"]})
+
+            d["question_kwd"] = cached.split("\n")
             d["question_tks"] = rag_tokenizer.tokenize("\n".join(d["question_kwd"]))
         progress_callback(msg="Question generation completed in {:.2f}s".format(timer() - st))
 
@@ -295,6 +314,8 @@ def embedding(docs, mdl, parser_config=None, callback=None):
         if not c:
             c = d["content_with_weight"]
         c = re.sub(r"</?(table|td|caption|tr|th)( [^<>]{0,12})?>", " ", c)
+        if not c:
+            c = "None"
         cnts.append(c)
 
     tk_count = 0
@@ -375,8 +396,6 @@ def run_raptor(row, chat_mdl, embd_mdl, callback=None):
         res.append(d)
         tk_count += num_tokens_from_string(content)
     return res, tk_count, vector_size
-
-
 
 
 def do_handle_task(task):
@@ -507,12 +526,12 @@ def handle_task():
             except Exception:
                 pass
             logging.debug("handle_task got TaskCanceledException", exc_info=True)
-        except Exception:
+        except Exception as e:
             with mt_lock:
                 FAILED_TASKS += 1
                 CURRENT_TASK = None
             try:
-                set_progress(task["id"], prog=-1, msg="handle_task got exception, please check log")
+                set_progress(task["id"], prog=-1, msg=f"[Exception]: {e}")
             except Exception:
                 pass
             logging.exception(f"handle_task got exception for task {json.dumps(task)}")
@@ -535,7 +554,7 @@ def report_status():
             with mt_lock:
                 heartbeat = json.dumps({
                     "name": CONSUMER_NAME,
-                    "now": now.isoformat(),
+                    "now": now.astimezone().isoformat(timespec="milliseconds"),
                     "boot_at": BOOT_AT,
                     "pending": PENDING_TASKS,
                     "lag": LAG_TASKS,

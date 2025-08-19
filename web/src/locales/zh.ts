@@ -33,6 +33,9 @@ export default {
       pleaseSelect: '请选择',
       pleaseInput: '请输入',
       submit: '提交',
+      embedIntoSite: '嵌入网站',
+      previousPage: '上一页',
+      nextPage: '下一页',
     },
     login: {
       login: '登录',
@@ -118,8 +121,8 @@ export default {
       view: '看法',
       filesSelected: '选定的文件',
       upload: '上传',
-      run: '启动',
-      runningStatus0: '未启动',
+      run: '解析',
+      runningStatus0: '未解析',
       runningStatus1: '解析中',
       runningStatus2: '取消',
       runningStatus3: '成功',
@@ -285,6 +288,16 @@ export default {
 <p>接下来，将分块传输到 LLM 以提取知识图谱和思维导图的节点和关系。</p>
 
 注意您需要指定的条目类型。</p>`,
+      tag: `<p>使用“标签”作为分块方法的知识库应该被其他知识库使用，以将标签添加到其块中，对这些块的查询也将带有标签。</p>
+<p>使用“标签”作为分块方法的知识库<b>不</b>应该参与 RAG 过程。</p>
+<p>此知识库中的块是标签的示例，它们演示了整个标签集以及块和标签之间的相关性。</p>
+
+<p>此块方法支持<b>EXCEL</b>和<b>CSV/TXT</b>文件格式。</p>
+<p>如果文件为<b>Excel</b>格式，则它应该包含两列无标题：一列用于内容，另一列用于标签，内容列位于标签列之前。可以接受多个工作表，只要列结构正确即可。</p>
+<p>如果文件为 <b>CSV/TXT</b> 格式，则必须使用 UTF-8 编码并以 TAB 作为分隔符来分隔内容和标签。</p>
+<p>在标签列中，标签之间使用英文 <b>逗号</b>。</p>
+<i>不符合上述规则的文本行将被忽略，并且每对文本将被视为一个不同的块。</i>
+`,
       useRaptor: '使用召回增强RAPTOR策略',
       useRaptorTip: '请参考 https://huggingface.co/papers/2401.18059',
       prompt: '提示词',
@@ -308,6 +321,11 @@ export default {
       pageRank: '页面排名',
       pageRankTip: `这用于提高相关性得分。所有检索到的块的相关性得分将加上此数字。
 当您想首先搜索给定的知识库时，请设置比其他知识库更高的 pagerank 得分。`,
+      tagName: '标签',
+      frequency: '频次',
+      searchTags: '搜索标签',
+      tagCloud: '云',
+      tagTable: '表',
     },
     chunk: {
       chunk: '解析块',
@@ -584,7 +602,7 @@ export default {
         '请输入 Google Cloud Service Account Key in base64 format',
       addGoogleRegion: 'Google Cloud 区域',
       GoogleRegionMessage: '请输入 Google Cloud 区域',
-      modelProvidersWarn: `请先在<b>设置 > 模型提供程序</b>中添加嵌入模型和 LLM。然后在“系统模型设置”中设置它们。`,
+      modelProvidersWarn: `请先在<b>模型提供商</b>中添加嵌入模型和LLM，然后在“系统模型设置”中设置它们。`,
       apiVersion: 'API版本',
       apiVersionMessage: '请输入API版本!',
       add: '添加',
@@ -1059,6 +1077,23 @@ export default {
       contentTip: 'content: 邮件内容(可选)',
       jsonUploadTypeErrorMessage: '请上传json文件',
       jsonUploadContentErrorMessage: 'json 文件错误',
+      iteration: '循环',
+      iterationDescription: `该组件首先将输入以“分隔符”分割成数组，然后依次对数组中的元素执行相同的操作步骤，直到输出所有结果，可以理解为一个任务批处理器。
+
+例如在长文本翻译迭代节点中，如果所有内容都输入到LLM节点，可能会达到单次对话的限制，上游节点可以先将长文本分割成多个片段，配合迭代节点对每个片段进行批量翻译，避免达到单次对话的LLM消息限制。`,
+      delimiterTip: `该分隔符用于将输入文本分割成几个文本片段，每个文本片段的回显将作为每次迭代的输入项。`,
+      delimiterOptions: {
+        comma: '逗号',
+        lineBreak: '换行',
+        tab: '制表符',
+        underline: '下划线',
+        diagonal: '斜线',
+        minus: '减号',
+        semicolon: '分号',
+      },
+      addVariable: '新增变量',
+      variableSettings: '变量设置',
+      systemPrompt: '系统提示词',
     },
     footer: {
       profile: 'All rights reserved @ React',

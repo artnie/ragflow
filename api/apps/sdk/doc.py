@@ -42,8 +42,29 @@ from rag.nlp import search
 from rag.utils import rmSpace
 from rag.utils.storage_factory import STORAGE_IMPL
 
+from pydantic import BaseModel, Field, validator
+
 MAXIMUM_OF_UPLOADING_FILES = 256
 
+
+class Chunk(BaseModel):
+    id: str = ""
+    content: str = ""
+    document_id: str = ""
+    docnm_kwd: str = ""
+    important_keywords: list = Field(default_factory=list)
+    questions: list = Field(default_factory=list)
+    question_tks: str = ""
+    image_id: str = ""
+    available: bool = True
+    positions: list[list[int]] = Field(default_factory=list)
+
+    @validator('positions')
+    def validate_positions(cls, value):
+        for sublist in value:
+            if len(sublist) != 5:
+                raise ValueError("Each sublist in positions must have a length of 5")
+        return value
 
 @manager.route("/datasets/<dataset_id>/documents", methods=["POST"])  # noqa: F821
 @token_required
@@ -826,72 +847,55 @@ def list_chunks(tenant_id, dataset_id, document_id):
             renamed_doc["run"] = run_mapping.get(str(value))
 
     res = {"total": 0, "chunks": [], "doc": renamed_doc}
-    origin_chunks = []
-    if settings.docStoreConn.indexExist(search.index_name(tenant_id), dataset_id):
+    if req.get("id"):
+        chunk = settings.docStoreConn.get(req.get("id"), search.index_name(tenant_id), [dataset_id])
+        k = []
+        for n in chunk.keys():
+            if re.search(r"(_vec$|_sm_|_tks|_ltks)", n):
+                k.append(n)
+        for n in k:
+            del chunk[n]
+        if not chunk:
+            return get_error_data_result(f"Chunk `{req.get('id')}` not found.")
+        res['total'] = 1
+        final_chunk = {
+            "id":chunk.get("id",chunk.get("chunk_id")),
+            "content":chunk["content_with_weight"],
+            "document_id":chunk.get("doc_id",chunk.get("document_id")),
+            "docnm_kwd":chunk["docnm_kwd"],
+            "important_keywords":chunk.get("important_kwd",[]),
+            "questions":chunk.get("question_kwd",[]),
+            "dataset_id":chunk.get("kb_id",chunk.get("dataset_id")),
+            "image_id":chunk["img_id"],
+            "available":bool(chunk.get("available_int",1)),
+            "positions":chunk.get("position_int",[]),
+        }
+        res["chunks"].append(final_chunk)
+        _ = Chunk(**final_chunk)
+
+    elif settings.docStoreConn.indexExist(search.index_name(tenant_id), dataset_id):
         sres = settings.retrievaler.search(query, search.index_name(tenant_id), [dataset_id], emb_mdl=None,
                                            highlight=True)
         res["total"] = sres.total
-        sign = 0
         for id in sres.ids:
             d = {
                 "id": id,
-                "content_with_weight": (
+                "content": (
                     rmSpace(sres.highlight[id])
                     if question and id in sres.highlight
                     else sres.field[id].get("content_with_weight", "")
                 ),
-                "doc_id": sres.field[id]["doc_id"],
+                "document_id": sres.field[id]["doc_id"],
                 "docnm_kwd": sres.field[id]["docnm_kwd"],
-                "important_kwd": sres.field[id].get("important_kwd", []),
-                "question_kwd": sres.field[id].get("question_kwd", []),
-                "img_id": sres.field[id].get("img_id", ""),
-                "available_int": sres.field[id].get("available_int", 1),
-                "positions": sres.field[id].get("position_int", []),
+                "important_keywords": sres.field[id].get("important_kwd", []),
+                "questions": sres.field[id].get("question_kwd", []),
+                "dataset_id": sres.field[id].get("kb_id", sres.field[id].get("dataset_id")),
+                "image_id": sres.field[id].get("img_id", ""),
+                "available": bool(sres.field[id].get("available_int", 1)),
+                "positions": sres.field[id].get("position_int",[]),
             }
-            if len(d["positions"]) % 5 == 0:
-                poss = []
-                for i in range(0, len(d["positions"]), 5):
-                    poss.append(
-                        [
-                            float(d["positions"][i]),
-                            float(d["positions"][i + 1]),
-                            float(d["positions"][i + 2]),
-                            float(d["positions"][i + 3]),
-                            float(d["positions"][i + 4]),
-                        ]
-                    )
-                d["positions"] = poss
-
-            origin_chunks.append(d)
-            if req.get("id"):
-                if req.get("id") == id:
-                    origin_chunks.clear()
-                    origin_chunks.append(d)
-                    sign = 1
-                    break
-        if req.get("id"):
-            if sign == 0:
-                return get_error_data_result(f"Can't find this chunk {req.get('id')}")
-
-    for chunk in origin_chunks:
-        key_mapping = {
-            "id": "id",
-            "content_with_weight": "content",
-            "doc_id": "document_id",
-            "important_kwd": "important_keywords",
-            "question_kwd": "questions",
-            "img_id": "image_id",
-            "available_int": "available",
-        }
-        renamed_chunk = {}
-        for key, value in chunk.items():
-            new_key = key_mapping.get(key, key)
-            renamed_chunk[new_key] = value
-        if renamed_chunk["available"] == 0:
-            renamed_chunk["available"] = False
-        if renamed_chunk["available"] == 1:
-            renamed_chunk["available"] = True
-        res["chunks"].append(renamed_chunk)
+            res["chunks"].append(d)
+            _ = Chunk(**d) # validate the chunk
     return get_result(data=res)
 
 
@@ -1031,6 +1035,7 @@ def add_chunk(tenant_id, dataset_id, document_id):
         if key in key_mapping:
             new_key = key_mapping.get(key, key)
             renamed_chunk[new_key] = value
+    _ = Chunk(**renamed_chunk)  # validate the chunk
     return get_result(data={"chunk": renamed_chunk})
     # return get_result(data={"chunk_id": chunk_id})
 
@@ -1368,6 +1373,7 @@ def retrieval_test(tenant_id):
                 "important_kwd": "important_keywords",
                 "question_kwd": "questions",
                 "docnm_kwd": "document_keyword",
+                "kb_id":"dataset_id"
             }
             rename_chunk = {}
             for key, value in chunk.items():

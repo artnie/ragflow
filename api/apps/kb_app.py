@@ -107,6 +107,7 @@ def update():
                 settings.docStoreConn.update({"kb_id": kb.id}, {"pagerank_fea": req["pagerank"]},
                                          search.index_name(kb.tenant_id), kb.id)
             else:
+                # Elasticsearch requires pagerank_fea be non-zero!
                 settings.docStoreConn.update({"exist": "pagerank_fea"}, {"remove": "pagerank_fea"},
                                          search.index_name(kb.tenant_id), kb.id)
 
@@ -184,7 +185,8 @@ def rm():
                 return get_data_error_result(
                     message="Database error (Document removal)!")
             f2d = File2DocumentService.get_by_document_id(doc.id)
-            FileService.filter_delete([File.source_type == FileSource.KNOWLEDGEBASE, File.id == f2d[0].file_id])
+            if f2d:
+                FileService.filter_delete([File.source_type == FileSource.KNOWLEDGEBASE, File.id == f2d[0].file_id])
             File2DocumentService.delete_by_document_id(doc.id)
         FileService.filter_delete(
             [File.source_type == FileSource.KNOWLEDGEBASE, File.type == "folder", File.name == kbs[0].name])
